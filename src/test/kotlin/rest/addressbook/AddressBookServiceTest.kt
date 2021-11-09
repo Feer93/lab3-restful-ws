@@ -1,6 +1,20 @@
 package rest.addressbook
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.eclipse.jetty.http.HttpFields
+import org.eclipse.jetty.http.HttpURI
+import org.eclipse.jetty.http.HttpVersion
+import org.eclipse.jetty.http.MetaData
+import org.eclipse.jetty.http2.api.Session
+import org.eclipse.jetty.http2.api.Stream
+import org.eclipse.jetty.http2.api.server.ServerSessionListener
+import org.eclipse.jetty.http2.client.HTTP2Client
+import org.eclipse.jetty.http2.frames.DataFrame
+import org.eclipse.jetty.http2.frames.HeadersFrame
+import org.eclipse.jetty.util.Callback
+import org.eclipse.jetty.util.FuturePromise
+import org.eclipse.jetty.util.Jetty
+import org.eclipse.jetty.util.Promise
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -12,7 +26,9 @@ import org.springframework.boot.web.server.LocalServerPort
 import org.springframework.http.HttpEntity
 import org.springframework.http.HttpMethod
 import org.springframework.http.MediaType
+import java.net.InetSocketAddress
 import java.net.URI
+import java.util.concurrent.TimeUnit
 
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
 class AddressBookServiceTest {
@@ -307,6 +323,49 @@ class AddressBookServiceTest {
 
         // Test user 3 doesn't exist
         restTemplate.execute("http://localhost:$port/contacts/person/3", HttpMethod.GET, {}, { assertEquals(404, it.statusCode.value()) })
+    }
+
+    @Test
+    fun HTTP2_Supp() {
+
+
+        val client = HTTP2Client()
+        client.start()
+        // Conectamos el cliente al con el host
+        val sessionPromise: FuturePromise<Session> = FuturePromise<Session>()
+        client.connect(null, InetSocketAddress("localhost", port), ServerSessionListener.Adapter(), sessionPromise)
+
+        val sesion: Session = sessionPromise.get(10, TimeUnit.SECONDS)
+        // headers init
+        val requestFields = HttpFields()
+        requestFields.put("User-Agent", client.javaClass.name + "/" + Jetty.VERSION)
+        // request http que se va a hacer y en qué version.
+        val metaData = MetaData.Request("GET", HttpURI("https://localhost:$port/contacts"), HttpVersion.HTTP_2, requestFields)
+
+        //Respuesta del serivdor, configuramos e listener para cuando responda
+        var version: Int? = null
+        var repuestaServer: String? = null
+        val listener = object : Stream.Listener.Adapter() {
+            override fun onHeaders(stream: Stream, frame: HeadersFrame) {
+                //La versión debe ser http2.0
+                version =  frame.metaData.httpVersion.version
+            }
+            override fun onData(stream: Stream, frame: DataFrame, callback: Callback) {
+                val bytes = ByteArray(frame.data.remaining())
+                frame.data.get(bytes)
+                repuestaServer = String(bytes)
+                callback.succeeded()
+            }
+        }
+        //listen header/data/push frame
+        sesion.newStream(HeadersFrame(metaData, null, true), FuturePromise(),listener)
+
+        Thread.sleep(TimeUnit.SECONDS.toMillis(5))
+        client.stop()
+        //No hay nadie registrado por tanto debe devolver un array de personas vacio
+        assertEquals(repuestaServer,"[]")
+        //la version de la cabecera debe ser HTTP/2
+        assertEquals(version,HttpVersion.HTTP_2.version)
     }
 
 }

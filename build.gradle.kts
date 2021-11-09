@@ -19,10 +19,14 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-jersey")
 
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+    implementation("org.eclipse.jetty.http2:http2-server")
+
 
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.eclipse.jetty.http2:http2-client")
+
 }
 
 tasks.withType<KotlinCompile> {
